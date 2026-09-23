@@ -1,0 +1,122 @@
+{# ==========================================================
+   قالب الملف الجنائي (Jinja2) — RTL، طباعة A4، علامة مائية.
+   يستخدم شبكة Bootstrap RTL، لكن كل الأنماط مضمّنة لضمان
+   العمل المعزول و التوافق مع WeasyPrint.
+   ========================================================== #}
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <title>ملف تحقيقي — {{ d.person.full_name }}</title>
+  <style>
+    @page { size: A4; margin: 16mm 14mm 18mm 14mm; }
+    body { font-family: "Tajawal","Cairo","Noto Naskh Arabic","Segoe UI",Tahoma,sans-serif;
+           font-size: 12px; line-height: 1.7; color:#14202b; margin:0; }
+    .watermark { position: fixed; inset:0; display:flex; align-items:center; justify-content:center;
+                 pointer-events:none; z-index:0; }
+    .watermark span { transform: rotate(-30deg); font-size:54px; font-weight:800;
+                      color: rgba(178,34,52,.07); letter-spacing:4px; white-space:nowrap; }
+    .page { position:relative; z-index:2; }
+    .cover-head { display:flex; justify-content:space-between; align-items:flex-start;
+                  border-bottom:3px double #14202b; padding-bottom:10px; }
+    .classification { border:2px solid #b22234; color:#b22234; padding:5px 12px; font-weight:800; }
+    .classification.top_secret { background:#b22234; color:#fff; }
+    table { width:100%; border-collapse:collapse; margin:10px 0 16px; page-break-inside:avoid; }
+    th, td { border:1px solid #cfd8e0; padding:6px 8px; text-align:right; vertical-align:top; }
+    thead th { background:#eef2f6; font-size:11px; }
+    .meta th { width:32%; background:#f7f9fb; }
+    h2 { font-size:14px; font-weight:800; border-bottom:1px solid #cfd8e0; padding-bottom:5px;
+         margin:20px 0 8px; page-break-after:avoid; }
+    .note { border:1px solid #dbe2e8; border-radius:6px; padding:10px 12px; margin-bottom:10px;
+            page-break-inside:avoid; }
+    .chip { display:inline-block; background:#e8eef4; border-radius:999px; padding:1px 8px; font-size:10px; }
+    .chip.danger { background:#b22234; color:#fff; }
+    .hash { font-family:"Courier New",monospace; font-size:9.5px; direction:ltr; text-align:left; }
+    .foot { margin-top:24px; border-top:1px solid #cfd8e0; padding-top:8px; color:#55657a; font-size:10.5px; }
+  </style>
+</head>
+<body>
+  <div class="watermark"><span>سري — ملف تحقيقي</span></div>
+  <div class="page">
+    <header>
+      <div class="cover-head">
+        <div>
+          <div style="font-size:20px;font-weight:800">{{ d.person.full_name }}</div>
+          <div style="color:#55657a;font-size:11px">
+            منظومة إدارة جهات الاتصال والاستخبارات — نسخة محلية معزولة
+          </div>
+        </div>
+        <div class="classification {{ d.person.sensitivity }}">
+          {% if d.person.sensitivity == 'top_secret' %}سري للغاية
+          {% elif d.person.sensitivity == 'confidential' %}سري
+          {% else %}عام{% endif %}
+        </div>
+      </div>
+
+      <table class="meta">
+        <tr><th>الأسماء المستعارة</th><td>{{ d.person.aliases or '—' }}</td></tr>
+        <tr><th>النشاط / الغطاء</th><td>{{ d.person.occupation or '—' }}</td></tr>
+        <tr><th>الجنسية</th><td>{{ d.person.nationality or '—' }}</td></tr>
+        <tr><th>تاريخ الميلاد</th><td>{{ d.person.date_of_birth or '—' }}</td></tr>
+        <tr><th>العنوان الحالي</th><td>{{ d.person.address or '—' }}</td></tr>
+        <tr><th>تقييم الموثوقية</th><td>{{ d.person.reliability }}/5</td></tr>
+        <tr><th>نمط التصدير</th><td>{{ d.profile }}</td></tr>
+      </table>
+      {% if d.person.summary %}<pre style="white-space:pre-wrap;font-family:inherit">{{ d.person.summary }}</pre>{% endif %}
+    </header>
+
+    <h2>بطاقات الاتصال ({{ d.phones|length + d.emails|length + d.socials|length }})</h2>
+    <table>
+      <thead><tr><th>النوع</th><th>القيمة</th><th>التصنيف</th><th>ملاحظات</th></tr></thead>
+      <tbody>
+        {% for p in d.phones %}
+        <tr><td>هاتف</td><td dir="ltr">{{ p.number }}</td><td>{{ p.label }}</td>
+            <td>{% if p.whatsapp %}<span class="chip">واتساب</span>{% endif %}
+                {% if p.signal %}<span class="chip">سيجنال</span>{% endif %}
+                {% if p.telegram %}<span class="chip">تيليجرام</span>{% endif %}
+                {{ p.carrier_notes }}</td></tr>
+        {% endfor %}
+        {% for e in d.emails %}
+        <tr><td>بريد</td><td dir="ltr">{{ e.address }}</td><td>{{ e.type }}</td>
+            <td>{% if e.pgp %}<span class="chip">مفتاح PGP مرفق</span>{% else %}—{% endif %}</td></tr>
+        {% endfor %}
+        {% for s in d.socials %}
+        <tr><td>تواصل</td><td dir="ltr">{{ s.handle }}</td><td>{{ s.platform }}</td><td>{{ s.profile_url }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <h2>السجل الاستخباري الزمني ({{ d.notes|length }})</h2>
+    {% for n in d.notes %}
+    <article class="note">
+      <div><strong>{{ n.title }}</strong>
+        <span class="chip">{{ n.category }}</span>
+        {% if n.is_confidential %}<span class="chip danger">سري</span>{% endif %}
+      </div>
+      <div style="color:#55657a;font-size:10.5px">
+        تاريخ الحدث: {{ n.event_date or '—' }} — تاريخ التدوين: {{ n.recorded_at }}
+      </div>
+      <div style="margin-top:6px;white-space:pre-wrap">{{ n.content }}</div>
+    </article>
+    {% else %}<p style="color:#55657a">لا ملاحظات ضمن نطاق هذا التصدير.</p>{% endfor %}
+
+    <h2>فهرس الأدلة والمرفقات ({{ d.documents|length }})</h2>
+    <table>
+      <thead><tr><th>الاسم الأصلي</th><th>النوع</th><th>الحجم</th><th>SHA-256</th></tr></thead>
+      <tbody>
+        {% for doc in d.documents %}
+        <tr><td>{{ doc.original_name }}</td><td dir="ltr">{{ doc.mime_type }}</td>
+            <td>{{ doc.size_bytes }} بايت</td><td class="hash">{{ doc.sha256 }}</td></tr>
+        {% else %}
+        <tr><td colspan="4" style="color:#55657a">لا مرفقات (أو مستثناة بنمط التصدير).</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <footer class="foot">
+      <div>سلسلة العهدة الرقمية: {{ d.documents|length }} ملف مُبصَّم بـ SHA-256</div>
+      <div>سري — ملف تحقيقي — نسخة مطبوعة تخضع لرقابة التداول</div>
+    </footer>
+  </div>
+</body>
+</html>

@@ -1,0 +1,10 @@
+node_modules
+.next
+.git
+.env
+.data
+backup
+*.log
+reference/fastapi/__pycache__
+Dockerfile
+docker-compose.yml

@@ -1,0 +1,135 @@
+# ==================================================================
+#  منظومة إدارة جهات الاتصال والاستخبارات — التنسيق الكامل (Docker Compose)
+#  مبدأ التصميم: شبكة داخلية معزولة (internal) لا تُنشر للخارج،
+#  والمنفذ الوحيد المكشوف هو Nginx على 127.0.0.1:8080 (أو IP الشبكة المحلية).
+# ==================================================================
+
+name: icims
+
+services:
+  # ------------------------------ قاعدة البيانات ------------------------------
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-icims}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-icims_local_pw}
+      POSTGRES_DB: ${POSTGRES_DB:-icims}
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks: [internal]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-icims} -d ${POSTGRES_DB:-icims}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    # لا يوجد ports: الخدمة غير مكشوفة إطلاقاً على المضيف.
+
+  # ------------------------------- محرك البحث ---------------------------------
+  meilisearch:
+    image: getmeili/meilisearch:v1.11
+    restart: unless-stopped
+    environment:
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-change-me-local-master-key}
+      MEILI_ENV: production
+      MEILI_NO_ANALYTICS: "true"
+      MEILI_NO_SENTRY: "true"
+      MEILI_HTTP_ADDR: 0.0.0.0:7700
+    volumes:
+      - meili_data:/meili_data
+    networks: [internal]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:7700/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    # لا يوجد ports: يُستهلك عبر الشبكة الداخلية فقط.
+
+  # ---------------------- تطبيق الويب (Next.js / واجهة + API) ------------------
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      meilisearch:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-icims}:${POSTGRES_PASSWORD:-icims_local_pw}@db:5432/${POSTGRES_DB:-icims}
+      APP_SECRET: ${APP_SECRET:-change-me-app-secret}
+      MEDIA_DIR: /data/media
+      MEILISEARCH_HOST: http://meilisearch:7700
+      MEILISEARCH_API_KEY: ${MEILI_MASTER_KEY:-change-me-local-master-key}
+      MEILISEARCH_INDEX: icims
+    volumes:
+      - media_uploads:/data/media
+    networks: [internal, edge]
+    # لا يوجد ports: الوصول يمر عبر Nginx على شبكة edge.
+
+  # --------------------- الواجهة المرجعية FastAPI (اختياري) --------------------
+  # خدمة مرجعية مطابقة للمواصفات الأصلية (FastAPI + SQLAlchemy + WeasyPrint).
+  # فعّلها بإزالة التعليق عند الحاجة إلى طبقة Python للتوازي مع واجهة Next.js.
+  # fastapi:
+  #   build:
+  #     context: ./reference/fastapi
+  #     dockerfile: Dockerfile
+  #   restart: unless-stopped
+  #   depends_on:
+  #     db:
+  #       condition: service_healthy
+  #     meilisearch:
+  #       condition: service_healthy
+  #   environment:
+  #     DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-icims}:${POSTGRES_PASSWORD:-icims_local_pw}@db:5432/${POSTGRES_DB:-icims}
+  #     MEILISEARCH_HOST: http://meilisearch:7700
+  #     MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-change-me-local-master-key}
+  #     MEDIA_DIR: /data/media
+  #   volumes:
+  #     - media_uploads:/data/media
+  #   networks: [internal, edge]
+
+  # ---------------------------- الوكيل العكسي المكشوف --------------------------
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on: [app]
+    ports:
+      # المنفذ الوحيد المكشوف — اربطه بـ 127.0.0.1 فقط أو بعنوان الشبكة المحلية.
+      - "${BIND_ADDR:-127.0.0.1}:${BIND_PORT:-8080}:80"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    networks: [edge]
+
+  # --------------------------- تهيئة المخطط (تشغيل مرة) ------------------------
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: builder
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-icims}:${POSTGRES_PASSWORD:-icims_local_pw}@db:5432/${POSTGRES_DB:-icims}
+    command: ["npx", "drizzle-kit", "push", "--force"]
+    restart: "no"
+    networks: [internal]
+
+networks:
+  internal:
+    driver: bridge
+    internal: true
+  edge:
+    driver: bridge
+
+volumes:
+  pgdata:
+    name: icims_pgdata
+  meili_data:
+    name: icims_meili_data
+  media_uploads:
+    name: icims_media_uploads
