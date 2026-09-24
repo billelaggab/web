@@ -66,6 +66,7 @@ export default function PersonForm({ initial }: { initial?: Person }) {
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [retryable, setRetryable] = useState(false);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -75,6 +76,9 @@ export default function PersonForm({ initial }: { initial?: Person }) {
       return;
     }
     setBusy(true);
+    setError(null);
+    setRetryable(false);
+    let httpStatus = 0;
     try {
       const payload = {
         fullName: fullName.trim(),
@@ -96,15 +100,20 @@ export default function PersonForm({ initial }: { initial?: Person }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const data = (await res.json()) as {
+      httpStatus = res.status;
+      const data = (await res.json().catch(() => ({ ok: false }))) as {
         ok: boolean;
         error?: string;
         person?: Person;
       };
-      if (!res.ok || !data.ok) throw new Error(data.error ?? "فشل الحفظ");
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error ?? `فشل الحفظ (رمز ${res.status})`);
+      }
       router.push(`/persons/${editing ? initial!.id : data.person!.id}`);
       router.refresh();
     } catch (err) {
+      // 503/504 = حالة مؤقتة (قاعدة البيانات أو المخطط غير جاهز) — يمكن إعادة المحاولة.
+      setRetryable(httpStatus === 503 || httpStatus === 504 || httpStatus === 0);
       setError((err as Error).message);
     } finally {
       setBusy(false);
@@ -117,9 +126,23 @@ export default function PersonForm({ initial }: { initial?: Person }) {
   return (
     <form onSubmit={submit} className="d-print-none">
       {error && (
-        <div className="alert alert-danger d-flex align-items-center gap-2">
-          <i className="bi bi-exclamation-triangle-fill" />
-          <span>{error}</span>
+        <div className="alert alert-danger">
+          <div className="d-flex align-items-center gap-2">
+            <i className="bi bi-exclamation-triangle-fill" />
+            <span>{error}</span>
+          </div>
+          {retryable ? (
+            <div className="small mt-2 border-top pt-2 d-flex align-items-center gap-2">
+              <i className="bi bi-info-circle" />
+              <span>
+                هذه حالة مؤقتة (قاعدة البيانات لم تكن جاهزة أو المخطط لم يُطبَّق بعد). لم تُفقد
+                أي بيانات — انتظر ثانيتين ثم أعد المحاولة، أو راجع صفحة الإعدادات لفحص الحالة.
+              </span>
+              <button type="submit" className="btn btn-sm btn-outline-danger ms-2" disabled={busy}>
+                إعادة المحاولة
+              </button>
+            </div>
+          ) : null}
         </div>
       )}
 

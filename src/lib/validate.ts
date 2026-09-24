@@ -138,7 +138,80 @@ export function sanitizeUrl(raw: string | undefined): string {
   return "";
 }
 
-/** استجابة خطأ موحّدة */
+/* ------------------------- ترجمة أخطاء PostgreSQL إلى عربية ------------------------- */
+
+type PgErrorLike = { code?: string; message?: string };
+
+/** يبحث في سلسلة الأسباب (cause chain) عن رمز خطأ PostgreSQL معروف */
+function describeDatabaseError(error: unknown): { message: string; status: number } | null {
+  const chain: unknown[] = [];
+  let current: unknown = error;
+  while (current && typeof current === "object" && chain.length < 6) {
+    chain.push(current);
+    const cause = (current as { cause?: unknown }).cause;
+    if (cause && typeof cause === "object") current = cause;
+    else break;
+  }
+
+  for (const item of chain) {
+    if (!item || typeof item !== "object") continue;
+    const code = (item as PgErrorLike).code;
+    const message = (item as PgErrorLike).message ?? "";
+
+    switch (code) {
+      case "42P01":
+      case "42703":
+        return {
+          message:
+            "الجدول أو العمود غير موجود في قاعدة البيانات. جارٍ إنشاء المخطط تلقائياً — أعد المحاولة بعد لحظات.",
+          status: 503,
+        };
+      case "ECONNREFUSED":
+      case "ETIMEDOUT":
+      case "EAI_AGAIN":
+        return {
+          message:
+            "تعذّر الاتصال بخادم PostgreSQL. تأكد أن الحاوية/الخدمة تعمل وأن DATABASE_URL صحيح.",
+          status: 503,
+        };
+      case "28P01":
+        return { message: "فشلت مصادقة PostgreSQL (اسم مستخدم أو كلمة مرور غير صحيحة).", status: 503 };
+      case "3D000":
+        return { message: "قاعدة البيانات المحدّدة في DATABASE_URL غير موجودة.", status: 503 };
+      case "53300":
+        return { message: "تجاوز الحد الأقصى لاتصالات قاعدة البيانات. أعد المحاولة بعد لحظات.", status: 503 };
+      case "23505":
+        return { message: "سجل مكرر: توجد قيمة فريدة مطابقة مسبقاً.", status: 409 };
+      case "23503":
+        return { message: "مرجع غير صالح: السجل المرتبط غير موجود أو حُذف.", status: 409 };
+      case "23502":
+        return { message: "حقل إلزامي ناقص في السجل.", status: 400 };
+      case "22P02":
+        return { message: "قيمة غير صالحة لصيغة الحقل (معرّف UUID أو رقم أو تاريخ).", status: 400 };
+      case "22007":
+      case "22008":
+        return { message: "صيغة التاريخ غير صالحة (المتوقع YYYY-MM-DD).", status: 400 };
+      case "22001":
+        return { message: "قيمة أطول من الحد المسموح للحقل.", status: 400 };
+      case "57014":
+        return { message: "انتهت مهلة الاستعلام في قاعدة البيانات.", status: 504 };
+    }
+
+    if (/relation "[^"]+" does not exist/i.test(message)) {
+      return {
+        message:
+          "الجدول غير موجود في قاعدة البيانات. جارٍ إنشاء المخطط تلقائياً — أعد المحاولة بعد لحظات.",
+        status: 503,
+      };
+    }
+    if (/ECONNREFUSED|connection terminated unexpectedly|too many clients/i.test(message)) {
+      return { message: "تعذّر الاتصال بقاعدة البيانات أو اكتظاظ الاتصالات.", status: 503 };
+    }
+  }
+  return null;
+}
+
+/** استجابة خطأ موحّدة (رسالة عربية واضحة + النص الأصلي للتشخيص) */
 export function errorResponse(error: unknown): Response {
   if (error instanceof HttpError) {
     return Response.json(
@@ -146,6 +219,14 @@ export function errorResponse(error: unknown): Response {
       { status: error.status },
     );
   }
-  const message = error instanceof Error ? error.message : "خطأ غير متوقع";
-  return Response.json({ ok: false, error: message }, { status: 500 });
+
+  const raw = error instanceof Error ? error.message : "خطأ غير متوقع";
+  const described = describeDatabaseError(error);
+  if (described) {
+    return Response.json(
+      { ok: false, error: described.message, raw, kind: "database" },
+      { status: described.status },
+    );
+  }
+  return Response.json({ ok: false, error: raw, kind: "unexpected" }, { status: 500 });
 }

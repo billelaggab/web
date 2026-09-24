@@ -31,11 +31,15 @@
 ```bash
 cp .env.example .env          # ثم عدّل DATABASE_URL / APP_SECRET
 npm install
-npx drizzle-kit push          # إنشاء الجداول
 npm run build && npm start    # أو: npm run dev
 # إدخال بيانات تجريبية (إن كانت القاعدة فارغة):
 curl -X POST http://localhost:3000/api/seed
 ```
+
+> **لا حاجة لتنفيذ أي أمر تهجير يدوياً**: عند إقلاع الخادم (وقبل أول استعلام أيضاً) تُنشَأ
+> الجداول والفهارس تلقائياً بعبارات DDL غير ضارة (`IF NOT EXISTS`) في `src/db/pool.ts`.
+> لذلك لو بدأ التطبيق أمام قاعدة بيانات فارغة جديدة، تعمل كل الوظائف فوراً. أمر
+> `npx drizzle-kit push` يبقى متاحاً لمن يريد توليد المخطط صراحةً أو مقارنته.
 
 ## 3) التشغيل عبر Docker (الإنتاج على Ubuntu)
 

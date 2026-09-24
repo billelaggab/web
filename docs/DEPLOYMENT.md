@@ -59,10 +59,14 @@ openssl rand -hex 32   # # → MEILI_MASTER_KEY
 nano .env
 
 docker compose build
-docker compose up -d db meilisearch
-docker compose run --rm migrate        # إنشاء/تحديث الجداول (drizzle-kit push)
-docker compose up -d app nginx
+docker compose up -d db meilisearch   # انتظر جاهزية قاعدة البيانات ومحرك البحث
+docker compose up -d app nginx        # الجداول تُنشأ تلقائياً عند إقلاع app
 ```
+
+> **الجداول تُنشأ تلقائياً** عند إقلاع حاوية `app` (بوابة المخطط الذاتية في `src/db/pool.ts`
+> + `src/instrumentation.ts`)، مع إعادة محاولة إن كانت قاعدة البيانات لم تكتمل جاهزيتها.
+> خدمة `migrate` في `docker-compose.yml` تبقى متاحة لمن يريد تطبيق المخطط صراحةً:
+> `docker compose run --rm migrate`.
 
 ## 4) التحقق
 
