@@ -8,7 +8,7 @@ FROM node:22-bookworm-slim AS deps
 WORKDIR /app
 ENV NPM_CONFIG_FUND=false NPM_CONFIG_AUDIT=false
 COPY package.json package-lock.json ./
-RUN npm ci
+RUN npm install
 
 # ---------- المرحلة 2: البناء ----------
 FROM node:22-bookworm-slim AS builder
@@ -17,7 +17,7 @@ ENV NEXT_TELEMETRY_DISABLED=1 DOCKER_BUILD=1
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 # DATABASE_URL وقت البناء غير مستخدم (كل الصفحات ديناميكية) — يُمرَّر وقت التشغيل فقط.
-RUN npm run build
+RUN DATABASE_URL=postgres://dummy:dummy@localhost:5432/dummy npm run build
 
 # ---------- المرحلة 3: التشغيل ----------
 FROM node:22-bookworm-slim AS runner
